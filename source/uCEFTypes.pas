@@ -268,6 +268,11 @@ type
   TCefCursorHandle = Pointer;  // /include/internal/cef_types_mac.h (cef_cursor_handle_t)
   TCefEventHandle  = Pointer;  // /include/internal/cef_types_mac.h (cef_event_handle_t)
   {$ENDIF}
+  {$IFDEF DARWIN}
+  TCefWindowHandle = PtrUInt;  // /include/internal/cef_types_mac.h (cef_window_handle_t)
+  TCefCursorHandle = PtrUInt;  // /include/internal/cef_types_mac.h (cef_cursor_handle_t)
+  TCefEventHandle  = PtrUInt;  // /include/internal/cef_types_mac.h (cef_event_handle_t)
+  {$ENDIF}
   {$IFDEF LINUX}
     {$IFDEF FPC}
     TCefWindowHandle = culong;   // /include/internal/cef_types_linux.h (cef_window_handle_t)
@@ -1234,6 +1239,19 @@ type
     window                        : TCefWindowHandle;
     {$ENDIF}
     {$IFDEF MACOS}
+    window_name                   : TCefString;
+    x                             : Integer;
+    y                             : Integer;
+    width                         : Integer;
+    height                        : Integer;
+    hidden                        : Integer;
+    parent_view                   : TCefWindowHandle;
+    windowless_rendering_enabled  : Integer;
+    shared_texture_enabled        : Integer;
+    external_begin_frame_enabled  : Integer;
+    view                          : TCefWindowHandle;
+    {$ENDIF}
+    {$IFDEF DARWIN} // FPC
     window_name                   : TCefString;
     x                             : Integer;
     y                             : Integer;

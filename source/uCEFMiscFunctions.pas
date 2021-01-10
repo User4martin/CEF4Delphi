@@ -64,7 +64,7 @@ uses
   {$ELSE}
     {$IFDEF MSWINDOWS}Windows, ActiveX,{$ENDIF}
     {$IFDEF DELPHI14_UP}Types, IOUtils,{$ENDIF} Classes, SysUtils, Math,
-    {$IFDEF FPC}LCLType,{$IFNDEF MSWINDOWS}InterfaceBase, Forms,{$ENDIF}{$ENDIF}
+    {$IFDEF FPC}LCLType, LazFileUtils,{$IFNDEF MSWINDOWS}InterfaceBase, Forms,{$ENDIF}{$ENDIF}
     {$IFDEF LINUX}{$IFDEF FPC}
       ctypes, keysym, xf86keysym, x, xlib,
       {$IFDEF LCLGTK2}gtk2, glib2, gdk2, gtk2proc, gtk2int, Gtk2Def, gdk2x, Gtk2Extra,{$ENDIF}
@@ -164,6 +164,12 @@ procedure WindowInfoAsWindowless(var aWindowInfo : TCefWindowInfo; aParent : TCe
 {$ENDIF}
 
 {$IFDEF MACOS}
+procedure WindowInfoAsChild(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; aRect : TRect; const aWindowName : ustring = ''; aHidden : boolean = False);
+procedure WindowInfoAsPopUp(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring = ''; aHidden : boolean = False);
+procedure WindowInfoAsWindowless(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring = ''; aHidden : boolean = False);
+{$ENDIF}
+
+{$IFDEF DARWIN}
 procedure WindowInfoAsChild(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; aRect : TRect; const aWindowName : ustring = ''; aHidden : boolean = False);
 procedure WindowInfoAsPopUp(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring = ''; aHidden : boolean = False);
 procedure WindowInfoAsWindowless(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring = ''; aHidden : boolean = False);
@@ -747,6 +753,53 @@ begin
 end;
 {$ENDIF}
 
+{$IFDEF DARWIN}
+procedure WindowInfoAsChild(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; aRect : TRect; const aWindowName : ustring; aHidden : boolean);
+begin
+  aWindowInfo.window_name                  := CefString(aWindowName);
+  aWindowInfo.x                            := aRect.left;
+  aWindowInfo.y                            := aRect.top;
+  aWindowInfo.width                        := aRect.right  - aRect.left;
+  aWindowInfo.height                       := aRect.bottom - aRect.top;
+  aWindowInfo.hidden                       := Ord(aHidden);
+  aWindowInfo.parent_view                  := aParent;
+  aWindowInfo.windowless_rendering_enabled := ord(False);
+  aWindowInfo.shared_texture_enabled       := ord(False);
+  aWindowInfo.external_begin_frame_enabled := ord(False);
+  aWindowInfo.view                         := 0;
+end;
+
+procedure WindowInfoAsPopUp(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring; aHidden : boolean);
+begin
+  aWindowInfo.window_name                  := CefString(aWindowName);
+  aWindowInfo.x                            := 0;
+  aWindowInfo.y                            := 0;
+  aWindowInfo.width                        := 0;
+  aWindowInfo.height                       := 0;
+  aWindowInfo.hidden                       := Ord(aHidden);
+  aWindowInfo.parent_view                  := aParent;
+  aWindowInfo.windowless_rendering_enabled := ord(False);
+  aWindowInfo.shared_texture_enabled       := ord(False);
+  aWindowInfo.external_begin_frame_enabled := ord(False);
+  aWindowInfo.view                         := 0;
+end;
+
+procedure WindowInfoAsWindowless(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; const aWindowName : ustring; aHidden : boolean);
+begin
+  aWindowInfo.window_name                  := CefString(aWindowName);
+  aWindowInfo.x                            := 0;
+  aWindowInfo.y                            := 0;
+  aWindowInfo.width                        := 0;
+  aWindowInfo.height                       := 0;
+  aWindowInfo.hidden                       := Ord(aHidden);
+  aWindowInfo.parent_view                  := aParent;
+  aWindowInfo.windowless_rendering_enabled := ord(True);
+  aWindowInfo.shared_texture_enabled       := ord(False);
+  aWindowInfo.external_begin_frame_enabled := ord(False);
+  aWindowInfo.view                         := 0;
+end;
+{$ENDIF}
+
 {$IFDEF LINUX}
 procedure WindowInfoAsChild(var aWindowInfo : TCefWindowInfo; aParent : TCefWindowHandle; aRect : TRect; const aWindowName : ustring = '');
 var
@@ -856,7 +909,7 @@ begin
         TempString := 'PID: ' + IntToStr(TNSProcessInfo.Wrap(TNSProcessInfo.OCClass.processInfo).processIdentifier) + ', TID: ' + IntToStr(TThread.Current.ThreadID);
         {$ELSE}
           {$IFDEF FPC}
-          TempString := 'PID: ' + IntToStr(GetProcessID()) + ', TID: ' + IntToStr(GetCurrentThreadID());
+          TempString := 'PID: ' + IntToStr(GetProcessID()) + ', TID: ' + IntToStr(PtrUInt(GetCurrentThreadID()));
           {$ELSE}
           // TODO: Find the equivalent function to get the process ID in Delphi FMX for Linux
           // TempString := 'PID: ' + IntToStr(GetProcessID()) + ', TID: ' + IntToStr(GetCurrentThreadID());
@@ -1541,12 +1594,24 @@ begin
 end;
 
 function GetModulePath : string;
+{$IFDEF DARWIN}
+  const
+    MAC_APP_POSTFIX = '.app/';
+    MAC_APP_SUBPATH = 'Contents/MacOS/';
+{$EndIf}
 begin
   {$IFDEF MSWINDOWS}
   Result := IncludeTrailingPathDelimiter(ExtractFileDir(GetModuleName(HINSTANCE{$IFDEF FPC}(){$ENDIF})));
   {$ELSE}
   // DLL filename not supported
   Result := IncludeTrailingPathDelimiter(ExtractFileDir(ParamStr(0)));
+  {$IFDEF DARWIN}
+    if copy(Result, Length(Result) + 1 - Length(MAC_APP_POSTFIX) - Length(MAC_APP_SUBPATH))
+       = MAC_APP_POSTFIX + MAC_APP_SUBPATH
+    then
+      SetLength(Result, Length(Result) - Length(MAC_APP_SUBPATH));
+    Result := CreateAbsolutePath(Result, GetCurrentDirUTF8);
+  {$EndIf}
   {$ENDIF MSWINDOWS}
 end;
 

@@ -77,7 +77,12 @@ const
   LIBCEF_DLL                    = 'libcef.dll';
   CHROMEELF_DLL                 = 'chrome_elf.dll';
   {$ELSE}
-  LIBCEF_DLL                    = 'libcef.so';
+    {$IFDEF DARWIN}
+    LIBCEF_DLL                  = 'Chromium Embedded Framework';
+    LIBCEF_PREFIX               = 'Contents/Frameworks/Chromium Embedded Framework.framework/';
+    {$ELSE}
+    LIBCEF_DLL                  = 'libcef.so';
+    {$ENDIF}
   CHROMEELF_DLL                 = '';
   {$ENDIF}
 
@@ -652,7 +657,11 @@ begin
   FLogFile                           := '';
   FBrowserSubprocessPath             := '';
   FFrameworkDirPath                  := '';
+  {$IFDEF DARWIN}
+  FMainBundlePath                    := GetModulePath;
+  {$ELSE}
   FMainBundlePath                    := '';
+  {$ENDIF}
   FChromeRuntime                     := False;
   FLogSeverity                       := LOGSEVERITY_DISABLE;
   FJavaScriptFlags                   := '';
@@ -930,6 +939,10 @@ begin
 end;
 
 function TCefApplicationCore.GetLibCefPath : ustring;
+{$IFDEF DARWIN}
+var
+  Res: ustring;
+{$ENDIF}
 begin
   if (length(FFrameworkDirPath) > 0) then
     Result := IncludeTrailingPathDelimiter(FFrameworkDirPath) + LIBCEF_DLL
@@ -938,7 +951,11 @@ begin
       {$IFDEF LINUX}
       Result := GetModulePath + LIBCEF_DLL;
       {$ELSE}
-      Result := LIBCEF_DLL;
+        {$IFDEF DARWIN}
+        Result := GetModulePath + LIBCEF_PREFIX + LIBCEF_DLL;
+        {$ELSE}
+        Result := LIBCEF_DLL;
+        {$ENDIF}
       {$ENDIF}
     end;
 end;
@@ -1000,6 +1017,9 @@ var
   TempVersionInfo : TFileVersionInfo;
   {$ENDIF}
 begin
+  {$IFDEF DARWIN}
+  exit(true);
+  {$ENDIF}
   Result := False;
 
   if not(FCheckCEFFiles) or (FProcessType <> ptBrowser) then
@@ -1228,20 +1248,15 @@ begin
         {$IFDEF MSWINDOWS}
           TempArgs.instance := HINSTANCE{$IFDEF FPC}(){$ENDIF};
         {$ELSE}
-          {$IFDEF LINUX}
-            {$IFDEF FPC}
-            TempArgs.argc := argc;
-            TempArgs.argv := argv;
-            {$ELSE}
-            TempArgs.argc := ArgCount;
-            TempArgs.argv := PPWideChar(ArgValues);
-            {$ENDIF}
+          {$IFDEF FPC}
+          TempArgs.argc := argc;
+          TempArgs.argv := argv;
           {$ELSE}
-            // TODO: Find a way to pass the arguments in MacOS
-            {$IFDEF FPC}
-            TempArgs.argc := 0;
-            TempArgs.argv := 0;
+            {$IFDEF LINUX}
+              TempArgs.argc := ArgCount;
+              TempArgs.argv := PPWideChar(ArgValues);
             {$ELSE}
+            // TODO: Find a way to pass the arguments in MacOS
             TempArgs.argc := 0;
             TempArgs.argv := 0;
             {$ENDIF}
@@ -1320,20 +1335,15 @@ begin
             TempArgs.instance := HINSTANCE{$IFDEF FPC}(){$ENDIF};
           {$ELSE}
             {$WARN SYMBOL_PLATFORM OFF}
-            {$IFDEF LINUX}
-              {$IFDEF FPC}
-              TempArgs.argc := argc;
-              TempArgs.argv := argv;
-              {$ELSE}
+            {$IFDEF FPC}
+            TempArgs.argc := argc;
+            TempArgs.argv := argv;
+            {$ELSE}
+              {$IFDEF LINUX}
               TempArgs.argc := ArgCount;
               TempArgs.argv := PPWideChar(ArgValues);
-              {$ENDIF}
-            {$ELSE}
-              // TODO: Find a way to pass the arguments in MacOS
-              {$IFDEF FPC}
-              TempArgs.argc := 0;
-              TempArgs.argv := 0;
               {$ELSE}
+              // TODO: Find a way to pass the arguments in MacOS
               TempArgs.argc := 0;
               TempArgs.argv := 0;
               {$ENDIF}

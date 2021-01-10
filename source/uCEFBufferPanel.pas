@@ -877,11 +877,9 @@ var
   TempDC     : HDC;
   TempDPI    : UINT;
   {$ELSE}
-    {$IFDEF LINUX}
-      {$IFDEF FPC}
-      TempForm    : TCustomForm;
-      TempMonitor : TMonitor;
-      {$ENDIF}
+    {$IFDEF FPC}
+    TempForm    : TCustomForm;
+    TempMonitor : TMonitor;
     {$ENDIF}
   {$ENDIF}
 begin
@@ -905,24 +903,22 @@ begin
         end;
     end;
   {$ELSE}
-    {$IFDEF LINUX}
-      {$IFDEF FPC}
-      if (MainThreadID = GetCurrentThreadId()) then
-        begin
-          TempForm := GetParentForm(self, True);
+    {$IFDEF FPC}
+    if (MainThreadID = GetCurrentThreadId()) then
+      begin
+        TempForm := GetParentForm(self, True);
 
-          if (TempForm <> nil) then
-            begin
-              TempMonitor := TempForm.Monitor;
+        if (TempForm <> nil) then
+          begin
+            TempMonitor := TempForm.Monitor;
 
-              if (TempMonitor <> nil) then
-                begin
-                  aResultScale := TempMonitor.PixelsPerInch / USER_DEFAULT_SCREEN_DPI;
-                  Result       := True;
-                end;
-            end;
-        end;
-      {$ENDIF}
+            if (TempMonitor <> nil) then
+              begin
+                aResultScale := TempMonitor.PixelsPerInch / USER_DEFAULT_SCREEN_DPI;
+                Result       := True;
+              end;
+          end;
+      end;
     {$ENDIF}
   {$ENDIF}
 end;
