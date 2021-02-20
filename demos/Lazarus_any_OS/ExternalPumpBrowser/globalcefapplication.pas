@@ -70,6 +70,8 @@ begin
   GlobalCEFApp.MultiThreadedMessageLoop  := False;
   GlobalCEFApp.OnScheduleMessagePumpWork := @GlobalCEFApp_OnScheduleMessagePumpWork;
 
+  GlobalCEFApp.CheckCEFFiles := false;
+
   {$IFnDEF MACOSX}
   (* Use AppHelper as subprocess, instead of the main exe *)
   //GlobalCEFApp.BrowserSubprocessPath := 'AppHelper' + GetExeExt;
@@ -79,7 +81,7 @@ begin
   (* Enable the below to prevent being asked for permission to access "Chromium Safe Storage"
      If set to true, Cookies will not be encrypted.
   *)
-  //GlobalCEFApp.UseMockKeyChain := True;
+  GlobalCEFApp.UseMockKeyChain := True;
   {$ENDIF}
   {$IFDEF LINUX}
   // This is a workaround for the 'GPU is not usable error' issue :
