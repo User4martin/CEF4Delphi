@@ -15,9 +15,25 @@
       </SearchPaths>
       <Parsing>
         <SyntaxOptions>
+          <IncludeAssertionCode Value="True"/>
           <AllowLabel Value="False"/>
         </SyntaxOptions>
       </Parsing>
+      <CodeGeneration>
+        <Checks>
+          <IOChecks Value="True"/>
+          <RangeChecks Value="True"/>
+          <OverflowChecks Value="True"/>
+          <StackChecks Value="True"/>
+        </Checks>
+        <VerifyObjMethodCallValidity Value="True"/>
+      </CodeGeneration>
+      <Linking>
+        <Debugging>
+          <DebugInfoType Value="dsDwarf2Set"/>
+          <TrashVariables Value="True"/>
+        </Debugging>
+      </Linking>
     </CompilerOptions>
     <Description Value="CEF4Delphi is an open source project created by Salvador Díaz Fau to embed Chromium-based browsers in applications made with Delphi or Lazarus/FPC."/>
     <License Value="MPL 1.1"/>

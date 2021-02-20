@@ -70,10 +70,12 @@ begin
   GlobalCEFApp.MultiThreadedMessageLoop  := False;
   GlobalCEFApp.OnScheduleMessagePumpWork := @GlobalCEFApp_OnScheduleMessagePumpWork;
 
+  GlobalCEFApp.CheckCEFFiles := false;
+
   (* Enable the below to prevent being asked for permission to access "Chromium Safe Storage"
      If set to true, Cookies will not be encrypted.
   *)
-  //GlobalCEFApp.UseMockKeyChain := True;
+  GlobalCEFApp.UseMockKeyChain := True;
 
   {
   GlobalCEFApp.LogFile     := 'cef.log';

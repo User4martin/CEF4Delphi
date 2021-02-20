@@ -26,6 +26,10 @@
 #*.obj
 #
 
+*.pak
+*.bin
+*.dat
+
 # Delphi compiler-generated binaries (safe to delete)
 *.exe
 *.dll
