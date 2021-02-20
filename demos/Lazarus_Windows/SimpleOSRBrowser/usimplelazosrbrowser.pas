@@ -214,6 +214,7 @@ begin
   GlobalCEFApp.WindowlessRenderingEnabled := True;
   GlobalCEFApp.EnableHighDPISupport       := True;    
   //GlobalCEFApp.EnableGPU                  := True;
+  GlobalCEFApp.CheckCEFFiles := false;
 end;
 
 procedure TForm1.GoBtnClick(Sender: TObject);

@@ -198,7 +198,8 @@ begin
   GlobalCEFApp.ExternalMessagePump        := True;
   GlobalCEFApp.MultiThreadedMessageLoop   := False;
   GlobalCEFApp.OnScheduleMessagePumpWork  := @GlobalCEFApp_OnScheduleMessagePumpWork;
-  //GlobalCEFApp.EnableGPU                  := True;
+    GlobalCEFApp.CheckCEFFiles := false;
+//GlobalCEFApp.EnableGPU                  := True;
 end;
 
 procedure TOSRExternalPumpBrowserFrm.GoBtnClick(Sender: TObject);
