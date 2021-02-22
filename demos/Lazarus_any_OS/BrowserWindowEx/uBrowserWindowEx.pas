@@ -162,12 +162,15 @@ end;
 procedure TForm1.CloseBtnLeftClick(Sender: TObject);
 begin
   AddressPnlLeft.Enabled := False;
-  FreeAndNil(FBrowserLeft);
+  FBrowserLeft.CloseBrowser(True);
+  //FreeAndNil(FBrowserLeft);
 end;
 
 procedure TForm1.LeftBrowserClosed(Sender: TObject);
 begin
   OpenBtnLeft.Enabled := True;
+  if not (csDestroying in TComponent(Sender).ComponentState) then
+    Sender.Free;
 end;
 
 
