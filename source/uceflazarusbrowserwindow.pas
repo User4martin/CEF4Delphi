@@ -38,6 +38,7 @@
 unit uCEFLazarusBrowserWindow;
 
 {$mode objfpc}{$H+}
+{$i cef.inc}
 
 interface
 
@@ -45,43 +46,111 @@ uses
   {$IFDEF FPC}
   LResources,
   {$ENDIF}
-  uCEFApplication, uCEFChromiumWindow, uCEFTypes, uCEFInterfaces, Forms,
-  ExtCtrls, Classes, sysutils;
+  uCEFApplication, uCEFChromiumWindow, uCEFTypes, uCEFInterfaces, uCEFChromium,
+  uCEFLinkedWinControlBase, Forms, ExtCtrls, Classes, sysutils;
 
 type
 
+  (* On cocoa closing a browser (without closing its top-level window)
+     does not work, while the application is in any other event.
+     I.e. if the App is in a button-press event, then the browser will
+     only close once that event was finished.
+     Yet the user-code may have called TLazarusBrowserWindow, which can
+     not be cancelled. In that case TLazarusBrowserWindow will be closed,
+     and the TChromium kept, until it can close.
+     On Mac this is possible, as the containing NSView can be closed before
+     the TChromium. On other OS this order may or may not work.
+
+     Once the Application.MainForm closes (app exits) it is possible to wait
+     for the TChromium. Even if the terminate was triggered in an event.
+     By setting the component owner to the MainForm we can make sure it will
+     be called before the app terminates.
+  *)
+
+  TLazarusBrowserWindow = class;
+
+  { TChromiumWrapper }
+
+  TChromiumWrapper = class(TComponent)
+    protected type
+      TWrapperChromiumState   = (csNoBrowser, csCreatingBrowser, csHasBrowser, csClosingBrowser, csCloseAfterCreate);
+      TWrapperState           = (wsNone, wsWaitingForClose, wsSentCloseEventAfterWait, wsDestroyAfterWait);
+    protected
+      FChromium        : TChromium;
+      FChromiumState   : TWrapperChromiumState;
+      FWrapperState    : TWrapperState;
+
+      FBrowserWindow   : TLazarusBrowserWindow;
+      FLoadUrl         : ustring;
+
+      procedure WebBrowser_OnAfterCreated(Sender: TObject; const browser: ICefBrowser);
+      procedure WebBrowser_OnClose(Sender: TObject; const browser: ICefBrowser; var aAction : TCefCloseBrowserAction); reintroduce;
+      procedure WebBrowser_OnBeforeClose(Sender: TObject; const browser: ICefBrowser); reintroduce;
+      {$IFDEF FPC}
+      procedure   WebBrowser_OnGotFocus(Sender: TObject; const browser: ICefBrowser);
+      {$ENDIF}
+      procedure   DoCreated(Data: PtrInt);
+
+      procedure   MaybeDestroy;
+    public
+      constructor Create(AOwner: TLazarusBrowserWindow); reintroduce;
+      destructor  Destroy; override;
+
+      function    CreateBrowser: boolean;
+      procedure   LoadURL(aURL: ustring);
+      procedure   CloseBrowser(aForceClose: boolean);
+      function    IsClosed: boolean;
+      (* WaitForBrowserClosed calls ProcessMessages.
+         It therefore is possible that the TLazarusBrowserWindow will be destroyed
+         when this method returns.
+         It is the callers responsibility to take any necessary precaution.
+      *)
+      procedure   WaitForBrowserClosed;
+  end;
+
   { TLazarusBrowserWindow }
 
-  TLazarusBrowserWindow = class(TChromiumWindow)
-  private
-    FCanClose  : boolean;  // Set to True in TChromium.OnBeforeClose
-    FLoadUrl: ustring;
-    FOnBrowserClosed: TNotifyEvent;
-    FOnBrowserCreated: TNotifyEvent;
-    FTimer: TTimer;
+  TLazarusBrowserWindow = class(TCEFLinkedWinControlBase)
+    private
+      FChromiumWrapper  : TChromiumWrapper;
+      FCanClose         : boolean;  // Set to True in TChromium.OnBeforeClose
 
-    procedure DoCreateBrowser(Sender: TObject);
-  protected
-    procedure DestroyHandle; override;
-    procedure RealizeBounds; override;
+      FOnBrowserClosed  : TNotifyEvent;
+      FOnBrowserCreated : TNotifyEvent;
+      FTimer            : TTimer;
 
-    procedure WebBrowser_OnClose(Sender: TObject; const browser: ICefBrowser; var aAction : TCefCloseBrowserAction); reintroduce;
-    procedure WebBrowser_OnBeforeClose(Sender: TObject; const browser: ICefBrowser); reintroduce;
+      procedure   DoCreateBrowser(Sender: TObject);
+    protected
+      function    GetChromium: TChromium; override;
+      procedure   DestroyHandle; override;
+      procedure   RealizeBounds; override;
 
-    procedure DoEnter; override;
-    procedure DoExit; override;
-  public
-    constructor Create(AOwner: TComponent); override;
-    procedure AfterConstruction; override;
-    procedure CreateHandle; override;
+      procedure   DoEnter; override;
+      procedure   DoExit; override;
+      procedure   DoOnCreated;
+      procedure   DoOnClosed(Data: PtrInt);
+      procedure   DoOnFocus(Data: PtrInt);
+    public
+      constructor Create(AOwner: TComponent); override;
+      destructor  Destroy; override;
+      procedure   CreateHandle; override;
 
-    procedure CloseBrowser(aForceClose: boolean); reintroduce;
-    procedure LoadURL(aURL: ustring); reintroduce;
+      procedure   CloseBrowser(aForceClose: boolean);
+      procedure   WaitForBrowserClosed;
+      function    IsClosed: boolean;
+      procedure   LoadURL(aURL: ustring);
 
-  published
-    property OnBrowserCreated: TNotifyEvent read FOnBrowserCreated write FOnBrowserCreated;
-    property OnBrowserClosed: TNotifyEvent read FOnBrowserClosed write FOnBrowserClosed;
+    published
+      property    Chromium; //        : TChromium    read GetChromium;
+
+      property    OnBrowserCreated : TNotifyEvent read FOnBrowserCreated write FOnBrowserCreated;
+      (* OnBrowserClosed will not be called, if the TLazarusBrowserWindow is
+         destroyed/destroying before the browser is closed.
+      *)
+      property    OnBrowserClosed  : TNotifyEvent read FOnBrowserClosed write FOnBrowserClosed;
   end;
+
+  function HasClosingBrowsersWindows: Boolean;
 
 {$IFDEF FPC}
 procedure Register;
@@ -89,37 +158,224 @@ procedure Register;
 
 implementation
 
+{ TChromiumWrapper }
+
+procedure TChromiumWrapper.WebBrowser_OnAfterCreated(Sender: TObject;
+  const browser: ICefBrowser);
+begin
+  (* We may still be in Chromium.CreateBrowserSync
+     In that case initialization will happen after this event,
+     but before the call to CreateBrowser returns
+  *)
+  Application.QueueAsyncCall(@DoCreated, 0);
+end;
+
+procedure TChromiumWrapper.WebBrowser_OnClose(Sender: TObject;
+  const browser: ICefBrowser; var aAction: TCefCloseBrowserAction);
+begin
+  (* FBrowserWindow should always be <> nil
+     If FBrowserWindow is nil (MacOS) then the FBrowserWindow.Handle is destroyed too,
+     and CEF should call BeforeClose, without calling DoClose
+  *)
+  if (FBrowserWindow <> nil) and FBrowserWindow.DestroyChildWindow then
+    aAction := cbaDelay
+  else
+    aAction := cbaClose;
+end;
+
+procedure TChromiumWrapper.WebBrowser_OnBeforeClose(Sender: TObject;
+  const browser: ICefBrowser);
+begin
+  FChromiumState := csNoBrowser;
+
+  if (FBrowserWindow <> nil) then begin
+    if FWrapperState = wsWaitingForClose then
+      FWrapperState := wsSentCloseEventAfterWait
+    else
+      Application.QueueAsyncCall(@FBrowserWindow.DoOnClosed, 0);
+  end;
+end;
+
+procedure TChromiumWrapper.WebBrowser_OnGotFocus(Sender: TObject;
+  const browser: ICefBrowser);
+begin
+  if (FBrowserWindow <> nil) then
+    Application.QueueAsyncCall(@FBrowserWindow.DoOnFocus, 0);
+end;
+
+procedure TChromiumWrapper.DoCreated(Data: PtrInt);
+begin
+
+  // Any other state, means this is a late async call
+  case FChromiumState of
+    csCreatingBrowser: begin
+        FChromiumState := csHasBrowser;
+        if  FLoadUrl <> '' then
+          LoadURL(FLoadUrl);
+
+        if (FBrowserWindow <> nil) then
+          FBrowserWindow.DoOnCreated;
+      end;
+    csCloseAfterCreate: begin
+        FChromiumState := csHasBrowser;
+        CloseBrowser(True);
+      end;
+  end;
+end;
+
+procedure TChromiumWrapper.MaybeDestroy;
+begin
+  CloseBrowser(True);
+  FBrowserWindow := nil;
+
+  if FWrapperState in [wsWaitingForClose, wsSentCloseEventAfterWait] then
+    FWrapperState := wsDestroyAfterWait;
+
+  if FChromiumState = csNoBrowser then
+    Destroy;
+end;
+
+constructor TChromiumWrapper.Create(AOwner: TLazarusBrowserWindow);
+begin
+  FBrowserWindow := AOwner;
+  FChromiumState := csNoBrowser;
+  FWrapperState  := wsNone;
+
+  if not(csDesigning in ComponentState) then
+    begin
+      FChromium                := TChromium.Create(self);
+      FChromium.OnClose        := {$IFDEF FPC}@{$ENDIF}WebBrowser_OnClose;
+      FChromium.OnBeforeClose  := {$IFDEF FPC}@{$ENDIF}WebBrowser_OnBeforeClose;
+      FChromium.OnAfterCreated := {$IFDEF FPC}@{$ENDIF}WebBrowser_OnAfterCreated;
+      {$IFDEF LINUX}
+      // This is a workaround for the CEF issue #2026. Read below for more info.
+      FChromium.OnGotFocus     := {$IFDEF FPC}@{$ENDIF}WebBrowser_OnGotFocus;
+      {$ENDIF}
+    end;
+
+  (* Owner = MainForm
+     When MainForm closes/destroys all browsers must be closed.
+
+     However if any ChromiumWrapper (with closed browser) was not destroyed,
+     then it will go with the MainForm.
+     This could happen, if user-code wanted to Destroy the TLazarusBrowserWindow
+     in an OnBrowserClosed event, but prior destruction of the TLazarusBrowserWindow
+     cancelled the event.
+  *)
+  inherited Create(Application.MainForm);
+end;
+
+destructor TChromiumWrapper.Destroy;
+begin
+
+  (* This only happens if we get destroyed by the Owner, which is the App.MainForm
+     Any other code should call MaybeDestroy.
+  *)
+  if FChromiumState <> csNoBrowser then
+    WaitForBrowserClosed;
+
+  inherited Destroy;
+  Application.RemoveAsyncCalls(Self);
+end;
+
+function TChromiumWrapper.CreateBrowser: boolean;
+begin
+  if FChromiumState <> csNoBrowser then
+    exit(False);
+
+  FChromiumState := csCreatingBrowser;
+  Result := FChromium.CreateBrowser(FBrowserWindow, '');
+  if Result then begin
+    if FChromium.Initialized then
+      DoCreated(0);
+  end
+  else begin
+    FChromiumState := csNoBrowser;
+  end;
+end;
+
+procedure TChromiumWrapper.LoadURL(aURL: ustring);
+begin
+  FLoadUrl := '';
+  if FChromiumState = csHasBrowser then
+    FChromium.LoadURL(aURL)
+  else
+    FLoadUrl := aURL;
+end;
+
+procedure TChromiumWrapper.CloseBrowser(aForceClose: boolean);
+begin
+  if FChromiumState = csCreatingBrowser then begin
+    FChromiumState := csCloseAfterCreate;
+  end
+  else
+  if FChromiumState in [csHasBrowser] then
+  begin
+    FChromiumState := csClosingBrowser;
+    FChromium.CloseBrowser(aForceClose);
+  end;
+end;
+
+function TChromiumWrapper.IsClosed: boolean;
+begin
+  Result := FChromiumState = csNoBrowser;
+end;
+
+procedure TChromiumWrapper.WaitForBrowserClosed;
+begin
+  if FChromiumState = csNoBrowser then
+    exit;
+  if FChromiumState <> csClosingBrowser then
+    CloseBrowser(True);
+
+  FWrapperState := wsWaitingForClose;
+  while FChromiumState <> csNoBrowser do begin
+    Application.ProcessMessages;
+    if GlobalCEFApp.ExternalMessagePump then
+      GlobalCEFApp.DoMessageLoopWork;
+    sleep(5);
+  end;
+
+  if (FBrowserWindow <> nil) and
+     (FWrapperState = wsSentCloseEventAfterWait)
+  then
+    Application.QueueAsyncCall(@FBrowserWindow.DoOnClosed, 0);
+
+  if FWrapperState = wsDestroyAfterWait then
+    Destroy
+  else
+    FWrapperState := wsNone;
+end;
+
 { TLazarusBrowserWindow }
 
 procedure TLazarusBrowserWindow.DoCreateBrowser(Sender: TObject);
 begin
-  FCanClose := False;
   FTimer.Enabled := False;
-
-  if (CreateBrowser and Initialized) then begin
+  if FChromiumWrapper.CreateBrowser then begin
     FreeAndNil(FTimer);
-    {$IFDEF FPC}{$IFDEF LINUX}
-    ChromiumBrowser.UpdateXWindowVisibility(Visible);
-    ChromiumBrowser.UpdateBrowserSize(Left, Top, Width, Height);
-    {$ENDIF}{$ENDIF}
-
-    if FOnBrowserCreated <> nil then
-      FOnBrowserCreated(Self);
-    if FLoadUrl <> '' then
-      LoadURL(FLoadUrl);
   end
   else begin
     if GlobalCEFApp.ExternalMessagePump then
       GlobalCEFApp.DoMessageLoopWork;
 
-    FTimer.Enabled := True;
+    FTimer.Interval := 100;
+    FTimer.Enabled  := True;
   end;
+end;
+
+function TLazarusBrowserWindow.GetChromium: TChromium;
+begin
+  Result := FChromiumWrapper.FChromium;
 end;
 
 procedure TLazarusBrowserWindow.CreateHandle;
 begin
   inherited CreateHandle;
   if not (csDesigning in ComponentState) then begin
+    (* On Windows we can create the browser immediately.
+       But at least on Linux, we need to wait
+    *)
     FTimer := TTimer.Create(Self);
     FTimer.Interval := 20;
     FTimer.OnTimer := @DoCreateBrowser;
@@ -132,26 +388,22 @@ begin
   if FTimer <> nil then
     FreeAndNil(FTimer);
 
-  if (GlobalCEFApp = nil) or FCanClose or
+  if (GlobalCEFApp = nil) or // FCanClose or
+     (FChromiumWrapper.FChromiumState = csNoBrowser) or
      (csDesigning in ComponentState)
   then begin
     inherited DestroyHandle;
     exit;
   end;
 
-  CloseBrowser(True);
-  while not FCanClose do begin
-    Application.ProcessMessages;
-    if GlobalCEFApp.ExternalMessagePump then
-      GlobalCEFApp.DoMessageLoopWork;
-    sleep(5);
-  end;
-
+  {$IFDEF MACOSX}
   inherited DestroyHandle;
-
-  Application.ProcessMessages;
-  if GlobalCEFApp.ExternalMessagePump then
-    GlobalCEFApp.DoMessageLoopWork;
+  FChromiumWrapper.CloseBrowser(True);
+  {$ELSE}
+  Hide;
+  FChromiumWrapper.WaitForBrowserClosed;
+  inherited DestroyHandle;
+  {$ENDIF}
 end;
 
 procedure TLazarusBrowserWindow.RealizeBounds;
@@ -159,74 +411,96 @@ begin
   inherited RealizeBounds;
 
   if not (csDesigning in ComponentState) and HandleAllocated then
-    NotifyMoveOrResizeStarted;
-end;
-
-procedure TLazarusBrowserWindow.WebBrowser_OnClose(Sender: TObject;
-  const browser: ICefBrowser; var aAction: TCefCloseBrowserAction);
-begin
-  if DestroyChildWindow then
-    aAction := cbaDelay
-  else
-    aAction := cbaClose;
-end;
-
-procedure TLazarusBrowserWindow.WebBrowser_OnBeforeClose(Sender: TObject;
-  const browser: ICefBrowser);
-begin
-  FCanClose := True;
-  if FOnBrowserClosed <> nil then
-    FOnBrowserClosed(Self);
+    Chromium.NotifyMoveOrResizeStarted;
 end;
 
 procedure TLazarusBrowserWindow.DoEnter;
 begin
   inherited DoEnter;
-  If not(csDesigning in ComponentState) then ChromiumBrowser.SetFocus(True);
+  If not(csDesigning in ComponentState) then Chromium.SetFocus(True);
 end;
 
 procedure TLazarusBrowserWindow.DoExit;
 begin
   inherited DoExit;
   if not(csDesigning in ComponentState) then
-    ChromiumBrowser.SendCaptureLostEvent;
+    Chromium.SendCaptureLostEvent;
+end;
+
+procedure TLazarusBrowserWindow.DoOnCreated;
+begin
+  {$IFDEF FPC}{$IFDEF LINUX}
+  Chromium.UpdateXWindowVisibility(Visible);
+  Chromium.UpdateBrowserSize(Left, Top, Width, Height);
+  {$ENDIF}{$ENDIF}
+  if Assigned(FOnBrowserCreated) then
+    FOnBrowserCreated(Self);
+end;
+
+procedure TLazarusBrowserWindow.DoOnClosed(Data: PtrInt);
+begin
+  if (not(csDestroying in ComponentState)) and
+     Assigned(FOnBrowserClosed)
+  then
+    FOnBrowserClosed(Self);
+end;
+
+procedure TLazarusBrowserWindow.DoOnFocus(Data: PtrInt);
+begin
+  SetFocus;
 end;
 
 constructor TLazarusBrowserWindow.Create(AOwner: TComponent);
 begin
   FCanClose := True;
+  FChromiumWrapper := TChromiumWrapper.Create(Self);
   inherited Create(AOwner);
 end;
 
-procedure TLazarusBrowserWindow.AfterConstruction;
+destructor TLazarusBrowserWindow.Destroy;
 begin
-  inherited AfterConstruction;
-  if not(csDesigning in ComponentState) then begin
-    FChromium.OnClose        := @WebBrowser_OnClose;
-    FChromium.OnBeforeClose  := @WebBrowser_OnBeforeClose;
-  end;
+  inherited Destroy;
+  FChromiumWrapper.MaybeDestroy;
+  Application.RemoveAsyncCalls(Self);
 end;
 
 procedure TLazarusBrowserWindow.CloseBrowser(aForceClose: boolean);
 begin
-  if (GlobalCEFApp = nil) or FCanClose or (not HandleAllocated) then begin
-    if FOnBrowserClosed <> nil then
-      FOnBrowserClosed(Self);
-    exit;
-  end;
-  inherited CloseBrowser(aForceClose);
+  FChromiumWrapper.CloseBrowser(aForceClose);
+end;
+
+procedure TLazarusBrowserWindow.WaitForBrowserClosed;
+begin
+  FChromiumWrapper.WaitForBrowserClosed;
+end;
+
+function TLazarusBrowserWindow.IsClosed: boolean;
+begin
+  Result := FChromiumWrapper.IsClosed;
 end;
 
 procedure TLazarusBrowserWindow.LoadURL(aURL: ustring);
 begin
-  FLoadUrl := '';
-  if not Initialized then
-    FLoadUrl := aURL
-  else
-    inherited LoadURL(aURL);
+  FChromiumWrapper.LoadURL(aURL);
 end;
 
 {$IFDEF FPC}
+
+function HasClosingBrowsersWindows: Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  i := Application.ComponentCount - 1;
+  while i >= 0 do begin
+    if (Application.Components[i] is TChromiumWrapper) and
+       not(TChromiumWrapper(Application.Components[i]).IsClosed)
+    then
+      exit(True);
+    dec(i);
+  end;
+end;
+
 procedure Register;
 begin
   {$I res/tlazarusbrowserwindow.lrs}
