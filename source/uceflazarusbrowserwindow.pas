@@ -48,7 +48,7 @@ uses
   {$ENDIF}
   uCEFApplication, uCEFChromiumWindow, uCEFTypes, uCEFInterfaces, uCEFChromium,
   uCEFLinkedWinControlBase, uCEFLazApplication, uCEFBrowserViewComponent, Forms,
-  ExtCtrls, Controls, Classes, sysutils;
+  ExtCtrls, Controls, Classes, sysutils, LazLogger;
 
 type
 
@@ -203,6 +203,11 @@ procedure Register;
 
 implementation
 
+function dbgs(s: TLazChromium.TLazChromiumState): string;overload;
+begin
+  writestr(Result, s);
+end;
+
 { TLazChromium }
 
 function TLazChromium.GetIsClosing: Boolean;
@@ -237,6 +242,7 @@ procedure TLazChromium.DoCreated(Data: PtrInt);
 var
   u, f: ustring;
 begin
+DebugLn('Browser Created');
   // Any other state, means this is a late async call
   case FState of
     csCreatingBrowser: begin
@@ -356,6 +362,7 @@ end;
 procedure TChromiumWrapper.BrowserThread_OnClose(Sender: TObject;
   const browser: ICefBrowser; var aAction: TCefCloseBrowserAction);
 begin
+  DebugLnEnter(['>>> OnCLOSE --- ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   (* FBrowserWindow should always be <> nil
      If FBrowserWindow is nil (MacOS) then the FBrowserWindow.Handle is destroyed too,
      and CEF should call BeforeClose, without calling DoClose
@@ -364,16 +371,19 @@ begin
     aAction := cbaDelay
   else
     aAction := cbaClose;
+  DebugLnExit(['>>> OnCLOSE --- ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 end;
 
 procedure TChromiumWrapper.DoOnBeforeClose(Sender: TObject);
 begin
+  DebugLnEnter(['>>> On-BEFORE-CLOSE --- ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   if (FBrowserWindow <> nil) then begin
     if FWrapperState = wsWaitingForClose then
       FWrapperState := wsSentCloseEventAfterWait
     else
      FBrowserWindow.DoOnClosed(0);
   end;
+  DebugLnExit(['<<< On-BEFORE-CLOSE --- ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 end;
 
 procedure TChromiumWrapper.BrowserThread_OnGotFocus(Sender: TObject;
@@ -385,8 +395,10 @@ end;
 
 procedure TChromiumWrapper.MaybeDestroy;
 begin
+  DebugLnEnter(['>> MaybeDestroy ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   CloseBrowser(True);
   FBrowserWindow := nil;
+  DebugLnExit(['<< MaybeDestroy ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 
   if FWrapperState in [wsWaitingForClose, wsSentCloseEventAfterWait] then
     FWrapperState := wsDestroyAfterWait;
@@ -417,6 +429,7 @@ end;
 
 destructor TChromiumWrapper.Destroy;
 begin
+  DebugLn(['### DESTROY  ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   if FChromium.HasBrowser then
     WaitForBrowserClosed;
 
@@ -427,10 +440,12 @@ end;
 
 function TChromiumWrapper.CreateBrowser: boolean;
 begin
+  DebugLnEnter(['>>> CreateBrowser ++ ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   if FChromium.HasBrowser then
     exit(False);
 
   Result := FChromium.CreateBrowser(FBrowserWindow, '');
+  DebugLnExit(['<<< CreateBrowser ++ ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 end;
 
 procedure TChromiumWrapper.LoadURL(aURL: ustring);
@@ -440,7 +455,9 @@ end;
 
 procedure TChromiumWrapper.CloseBrowser(aForceClose: boolean);
 begin
+  DebugLnEnter(['>>> == CloseBrowser  ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   FChromium.CloseBrowser(aForceClose);
+  DebugLnExit(['<<< == CloseBrowser  ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 end;
 
 function TChromiumWrapper.IsClosed: boolean;
@@ -450,6 +467,7 @@ end;
 
 procedure TChromiumWrapper.WaitForBrowserClosed;
 begin
+  DebugLnEnter(['>>> == WaitCloseBrowser  ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
   if not FChromium.HasBrowser then
     exit;
   FChromium.CloseBrowser(True);
@@ -461,6 +479,7 @@ begin
       GlobalCEFApp.DoMessageLoopWork;
     sleep(5);
   end;
+  DebugLnExit(['<<< == WaitCloseBrowser  ', dbgs(FChromium.FState), ' HasWin:',dbgs(FBrowserWindow<>nil), '    ', ptruint(self)]);
 
   if (FBrowserWindow <> nil) and
      (FWrapperState = wsSentCloseEventAfterWait)
@@ -547,10 +566,12 @@ begin
      (not FChromiumWrapper.Chromium.HasBrowser) or
      (csDesigning in ComponentState)
   then begin
+DebugLn(['DestroyHandle']);
     inherited DestroyHandle;
     exit;
   end;
 
+  DebugLnEnter(['>>> DestroyHandle']);
   {$IFDEF MACOSX}
   inherited DestroyHandle;
   FChromiumWrapper.CloseBrowser(True);
@@ -558,6 +579,7 @@ begin
   FChromiumWrapper.WaitForBrowserClosed;
   inherited DestroyHandle;
   {$ENDIF}
+DebugLnExit(['<<< DestroyHandle']);
 end;
 
 procedure TLazarusBrowserWindow.RealizeBounds;
@@ -612,9 +634,11 @@ end;
 
 destructor TLazarusBrowserWindow.Destroy;
 begin
+DebugLnEnter(['>>### Destroy (LazWinBr)   ',ptruint(FChromiumWrapper)]);
   inherited Destroy;
   FChromiumWrapper.MaybeDestroy;
   Application.RemoveAsyncCalls(Self);
+DebugLnExit(['<<### Destroy  (LazWinBr)']);
 end;
 
 procedure TLazarusBrowserWindow.CloseBrowser(aForceClose: boolean);

@@ -46,7 +46,7 @@ uses
   GlobalCefApplication,
   uCEFLazarusCocoa, // required for Cocoa
   SysUtils, Messages, Forms, Controls,
-  Dialogs, ExtCtrls, StdCtrls, LMessages, Buttons,
+  Dialogs, ExtCtrls, StdCtrls, LMessages, Buttons, LazLogger,
   uCEFTypes, uCEFInterfaces,
   uCEFWorkScheduler, uCEFLazarusBrowserWindow, Classes;
 
@@ -180,12 +180,15 @@ begin
   FBrowserLeft := nil;
   //FreeAndNil(FBrowserLeft);
   OpenBtnLeft.Enabled := True;
+  DebugLn(['X LeftBrowser CloseClick done <<<']);
 end;
 
 procedure TForm1.LeftBrowserClosed(Sender: TObject);
 begin
+  DebugLn(['X LeftBrowser Close received <<<', (csDestroying in TComponent(Sender).ComponentState), ' ', Caption  ]);
   FClosingBrowsers.Remove(Sender);
   Sender.Free;
+  DebugLn(['X LeftBrowser Close destroyed <<<']);
 end;
 
 
@@ -226,6 +229,7 @@ begin
   FreeAndNil(FBrowserRight);
   {$ENDIF}
   OpenBtnRight.Enabled := True;
+  DebugLn(['X RightBrowser CloseClick done <<<']);
 end;
 
 procedure TForm1.RightBrowserClosed(Sender: TObject);
@@ -307,11 +311,13 @@ begin
     FBrowserRight.WaitForBrowserClosed;
   Application.Terminate;
   {$ENDIF}
+  DebugLn(['XXXXX App Terminate done <<<']);
 end;
 
 procedure TForm1.BtnCloseFormClick(Sender: TObject);
 begin
   Close;
+  DebugLn(['XXXXX Form Close done <<<']);
 end;
 
 procedure TForm1.BtnModalClick(Sender: TObject);
@@ -332,7 +338,9 @@ begin
   m.Caption := 'MOD';
   m.BtnCloseApp.Visible := False;
   m.ShowModal;
+  DebugLn(['XXXXX MODAL closed <<<']);
   m.Free;
+  DebugLn(['XXXXX MODAL done <<<']);
 end;
 
 procedure TForm1.Chromium1OpenUrlFromTab(Sender: TObject;
